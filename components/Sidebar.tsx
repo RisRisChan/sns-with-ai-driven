@@ -5,13 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { useState, useEffect } from "react";
-
-interface User {
-  id: string;
-  username: string;
-  displayName: string;
-  profileImage: string;
-}
+import { getCurrentUser, type User } from "@/lib/dal";
 
 export default function Sidebar() {
   const { user, isSignedIn } = useUser();
@@ -20,35 +14,17 @@ export default function Sidebar() {
 
   useEffect(() => {
     if (isSignedIn && user) {
-      fetch("/api/users")
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.user) {
-            setCurrentUser(data.user);
-          }
-        })
-        .catch(console.error);
+      getCurrentUser().then((userData) => {
+        if (userData) {
+          setCurrentUser(userData);
+        }
+      });
     }
   }, [isSignedIn, user]);
 
-  if (!isSignedIn) {
-    return (
-      <aside className="w-64 p-4 border-r border-gray-200 dark:border-gray-800 h-screen sticky top-0">
-        <div className="flex flex-col items-center justify-center h-full gap-4">
-          <h1 className="text-2xl font-bold">SNS</h1>
-          <SignInButton mode="modal">
-            <button className="px-6 py-2 bg-blue-500 text-white rounded-full font-semibold hover:bg-blue-600 transition-colors">
-              ログイン
-            </button>
-          </SignInButton>
-        </div>
-      </aside>
-    );
-  }
-
-  return (
-    <aside className="w-64 p-4 border-r border-gray-200 dark:border-gray-800 h-screen sticky top-0 overflow-y-auto">
-      <div className="flex flex-col gap-6">
+  const DesktopSidebar = (
+    <aside className="hidden md:flex w-64 p-4 border-r border-gray-200 dark:border-gray-800 h-screen sticky top-0 overflow-y-auto">
+      <div className="flex flex-col gap-6 w-full">
         <h1 className="text-2xl font-bold mb-4">SNS</h1>
 
         <nav className="flex flex-col gap-2">
@@ -86,7 +62,7 @@ export default function Sidebar() {
                 alt={currentUser.displayName}
                 width={40}
                 height={40}
-                className="rounded-full"
+                className="rounded-full object-cover flex-shrink-0"
               />
               <div className="flex-1 min-w-0">
                 <div className="font-semibold truncate">
@@ -108,5 +84,61 @@ export default function Sidebar() {
         )}
       </div>
     </aside>
+  );
+
+  const MobileNavSignedOut = (
+    <div className="md:hidden w-full border-b border-gray-200 dark:border-gray-800 px-4 py-3 flex items-center justify-between">
+      <h1 className="text-xl font-bold">SNS</h1>
+      <SignInButton mode="modal">
+        <button className="px-4 py-2 bg-blue-500 text-white rounded-full font-semibold hover:bg-blue-600 transition-colors">
+          ログイン
+        </button>
+      </SignInButton>
+    </div>
+  );
+
+  const MobileNavSignedIn = currentUser && (
+    <div className="md:hidden w-full border-b border-gray-200 dark:border-gray-800 px-4 py-3 flex items-center justify-between">
+      <h1 className="text-xl font-bold">SNS</h1>
+      <div className="flex items-center gap-4">
+        <Link
+          href="/"
+          className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+        >
+          <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069z" />
+          </svg>
+        </Link>
+        <Link
+          href={`/users/${currentUser.id}`}
+          className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
+        >
+          <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+          </svg>
+        </Link>
+        <SignOutButton>
+          <button className="p-2 rounded-full text-red-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
+            ログアウト
+          </button>
+        </SignOutButton>
+      </div>
+    </div>
+  );
+
+  if (!isSignedIn) {
+    return (
+      <>
+        {MobileNavSignedOut}
+        {DesktopSidebar}
+      </>
+    );
+  }
+
+  return (
+    <>
+      {MobileNavSignedIn}
+      {DesktopSidebar}
+    </>
   );
 }

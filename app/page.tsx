@@ -5,34 +5,13 @@ import { useUser } from "@clerk/nextjs";
 import Sidebar from "@/components/Sidebar";
 import PostForm from "@/components/PostForm";
 import PostCard from "@/components/PostCard";
-
-interface User {
-  id: string;
-  username: string;
-  displayName: string;
-  profileImage: string;
-}
-
-interface Reply {
-  id: string;
-  userId: string;
-  content: string;
-  createdAt: Date;
-  likes: string[];
-  user?: User;
-}
-
-interface Post {
-  id: string;
-  userId: string;
-  content: string;
-  createdAt: Date;
-  likes: string[];
-  replies: Reply[];
-  user?: User;
-  replyToId?: string;
-  replyToUserId?: string;
-}
+import {
+  getCurrentUser,
+  getHomeTimeline,
+  createPost,
+  type Post,
+  type User,
+} from "@/lib/dal";
 
 export default function Home() {
   const { user, isSignedIn } = useUser();
@@ -54,25 +33,17 @@ export default function Home() {
   }, [isSignedIn]);
 
   const loadUser = async () => {
-    try {
-      const response = await fetch("/api/users");
-      const data = await response.json();
-      if (data.user) {
-        setCurrentUser(data.user);
-      }
-    } catch (error) {
-      console.error("Error loading user:", error);
+    const user = await getCurrentUser();
+    if (user) {
+      setCurrentUser(user);
     }
   };
 
   const loadPosts = async () => {
     try {
       setLoading(true);
-      const response = await fetch("/api/posts?type=home");
-      const data = await response.json();
-      if (data.posts) {
-        setPosts(data.posts);
-      }
+      const postsData = await getHomeTimeline();
+      setPosts(postsData);
     } catch (error) {
       console.error("Error loading posts:", error);
     } finally {
@@ -80,22 +51,42 @@ export default function Home() {
     }
   };
 
-  const handlePostSubmit = async (content: string, replyToId?: string) => {
+  const handlePostSubmit = async (
+    content: string,
+    imageUrl?: string,
+    replyToId?: string
+  ) => {
     try {
-      const response = await fetch("/api/posts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, replyToId }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.post) {
-          setPosts((prev) => [data.post, ...prev]);
-          setReplyingTo(null);
+      const newPost = await createPost({ content, imageUrl, replyToId });
+      if (newPost) {
+        if (replyToId) {
+          // 返信の場合は、親投稿のreplies配列に追加
+          setPosts((prev) =>
+            prev.map((post) => {
+              if (post.id === replyToId) {
+                return {
+                  ...post,
+                  replies: [
+                    ...(post.replies || []),
+                    {
+                      id: newPost.id,
+                      userId: newPost.userId,
+                      content: newPost.content,
+                      createdAt: newPost.createdAt,
+                      likes: newPost.likes,
+                      user: newPost.user,
+                    },
+                  ],
+                };
+              }
+              return post;
+            })
+          );
+        } else {
+          // 通常の投稿の場合は、タイムラインの先頭に追加
+          setPosts((prev) => [newPost, ...prev]);
         }
-      } else {
-        throw new Error("Failed to create post");
+        setReplyingTo(null);
       }
     } catch (error) {
       console.error("Error creating post:", error);
@@ -159,31 +150,18 @@ export default function Home() {
   }
 
   return (
-    <div className="flex min-h-screen bg-white dark:bg-black">
+    <div className="flex flex-col md:flex-row min-h-screen bg-white dark:bg-black">
       <Sidebar />
-      <main className="flex-1 max-w-2xl border-x border-gray-200 dark:border-gray-800">
+      <main className="w-full md:flex-1 max-w-2xl border-x border-gray-200 dark:border-gray-800">
         <div className="sticky top-0 bg-white dark:bg-black bg-opacity-80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-800 px-4 py-3 z-10">
           <h2 className="text-xl font-bold">ホーム</h2>
         </div>
 
-        {replyingTo ? (
-          <div className="border-b border-gray-200 dark:border-gray-800">
-            <PostForm
-              user={currentUser}
-              onSubmit={handlePostSubmit}
-              replyToId={replyingTo.postId}
-              replyToUserId={replyingTo.userId}
-              onCancel={() => setReplyingTo(null)}
-              placeholder="返信を投稿..."
-            />
-          </div>
-        ) : (
-          <PostForm
-            user={currentUser}
-            onSubmit={handlePostSubmit}
-            placeholder="いまどうしてる？"
-          />
-        )}
+        <PostForm
+          user={currentUser}
+          onSubmit={handlePostSubmit}
+          placeholder="いまどうしてる？"
+        />
 
         {loading ? (
           <div className="flex items-center justify-center py-12">
@@ -208,6 +186,13 @@ export default function Home() {
                 onLike={handleLike}
                 onDelete={handleDelete}
                 onReply={handleReply}
+                replyingToPostId={replyingTo?.postId || null}
+                onShowReplyForm={(postId, replyToUserId) => {
+                  setReplyingTo({ postId, userId: replyToUserId });
+                }}
+                onCancelReply={() => setReplyingTo(null)}
+                currentUser={currentUser}
+                onPostSubmit={handlePostSubmit}
               />
             ))}
           </div>

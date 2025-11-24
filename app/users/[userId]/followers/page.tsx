@@ -6,6 +6,12 @@ import { useParams, useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import Image from "next/image";
 import Link from "next/link";
+import {
+  getCurrentUser,
+  getUserById,
+  getUsersByIds,
+  type User,
+} from "@/lib/dal";
 
 interface User {
   id: string;
@@ -40,28 +46,19 @@ export default function FollowersPage() {
     try {
       setLoading(true);
 
-      const currentUserRes = await fetch("/api/users");
-      const currentUserData = await currentUserRes.json();
-      if (currentUserData.user) {
-        setCurrentUser(currentUserData.user);
+      const currentUserData = await getCurrentUser();
+      if (currentUserData) {
+        setCurrentUser(currentUserData);
       }
 
-      const profileRes = await fetch(`/api/users?userId=${userId}`);
-      const profileData = await profileRes.json();
-      if (profileData.user) {
-        setProfileUser(profileData.user);
+      const profileUserData = await getUserById(userId);
+      if (profileUserData) {
+        setProfileUser(profileUserData);
 
         // フォロワー一覧を取得
-        const followersData = profileData.user.followers.map(
-          (followerId: string) => {
-            return fetch(`/api/users?userId=${followerId}`)
-              .then((res) => res.json())
-              .then((data) => data.user);
-          }
-        );
-
-        const followersList = await Promise.all(followersData);
-        setFollowers(followersList.filter(Boolean));
+        const followerIds = profileUserData.followers || [];
+        const followersList = await getUsersByIds(followerIds);
+        setFollowers(followersList);
       }
     } catch (error) {
       console.error("Error loading data:", error);
@@ -144,7 +141,7 @@ export default function FollowersPage() {
                   alt={follower.displayName}
                   width={48}
                   height={48}
-                  className="rounded-full"
+                  className="rounded-full object-cover flex-shrink-0"
                 />
                 <div className="flex-1">
                   <div className="font-semibold">{follower.displayName}</div>

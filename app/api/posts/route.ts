@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { currentUser } from "@clerk/nextjs/server";
-import { dataStore } from "@/lib/dummy-data";
+import { prisma } from "@/lib/prisma";
+import { getOrCreateUser } from "@/lib/db-helpers";
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await currentUser();
+    const user = await getOrCreateUser();
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -15,54 +15,120 @@ export async function GET(request: NextRequest) {
 
     let posts;
     if (type === "home") {
-      // ホームタイムライン（フォロー中のユーザー + 自分の投稿）
-      let dummyUser = dataStore.getUser(user.id);
-      if (!dummyUser) {
-        // ユーザーが存在しない場合は作成
-        dummyUser = dataStore.createUser({
-          id: user.id,
-          email: user.emailAddresses[0]?.emailAddress || "",
-          username: user.username || user.id.substring(0, 8),
-          displayName:
-            user.firstName && user.lastName
-              ? `${user.firstName} ${user.lastName}`
-              : user.username || "User",
-          bio: "",
-          profileImage:
-            user.imageUrl ||
-            "https://api.dicebear.com/7.x/avataaars/svg?seed=" + user.id,
-          headerImage: "https://picsum.photos/800/200?random=" + user.id,
-        });
-      }
-      posts = dataStore.getHomeTimeline(dummyUser.id);
+      // ホームタイムライン（すべてのユーザーの投稿を時系列順に表示、返信以外）
+      posts = await prisma.post.findMany({
+        where: {
+          replyToId: null,
+        },
+        include: {
+          user: true,
+          likes: {
+            include: {
+              user: true,
+            },
+          },
+          replies: {
+            include: {
+              user: true,
+              likes: {
+                include: {
+                  user: true,
+                },
+              },
+            },
+            orderBy: {
+              createdAt: "asc",
+            },
+          },
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+      });
     } else if (userId) {
       // 特定ユーザーのタイムライン
-      posts = dataStore.getPostsByUser(userId);
+      posts = await prisma.post.findMany({
+        where: {
+          userId,
+          replyToId: null,
+        },
+        include: {
+          user: true,
+          likes: {
+            include: {
+              user: true,
+            },
+          },
+          replies: {
+            include: {
+              user: true,
+              likes: {
+                include: {
+                  user: true,
+                },
+              },
+            },
+            orderBy: {
+              createdAt: "asc",
+            },
+          },
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+      });
     } else {
-      posts = dataStore.getAllPosts();
+      posts = await prisma.post.findMany({
+        where: {
+          replyToId: null,
+        },
+        include: {
+          user: true,
+          likes: {
+            include: {
+              user: true,
+            },
+          },
+          replies: {
+            include: {
+              user: true,
+              likes: {
+                include: {
+                  user: true,
+                },
+              },
+            },
+            orderBy: {
+              createdAt: "asc",
+            },
+          },
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+      });
     }
 
-    // 投稿にユーザー情報を追加
-    const postsWithUsers = posts.map((post) => {
-      const postUser = dataStore.getUser(post.userId);
-      const replies = post.replies
-        .map((replyId) => {
-          const reply = dataStore.getPost(replyId);
-          if (!reply) return null;
-          const replyUser = dataStore.getUser(reply.userId);
-          return {
-            ...reply,
-            user: replyUser,
-          };
-        })
-        .filter(Boolean);
-
-      return {
-        ...post,
-        user: postUser,
-        replies,
-      };
-    });
+    // レスポンス形式を既存の形式に合わせる
+    const postsWithUsers = posts.map((post: (typeof posts)[0]) => ({
+      id: post.id,
+      userId: post.userId,
+      content: post.content,
+      imageUrl: post.imageUrl || undefined,
+      createdAt: post.createdAt,
+      likes: post.likes.map((like: { userId: string }) => like.userId),
+      replies: (post.replies || []).map((reply: (typeof post.replies)[0]) => ({
+        id: reply.id,
+        userId: reply.userId,
+        content: reply.content,
+        createdAt: reply.createdAt,
+        likes: reply.likes.map((like: { userId: string }) => like.userId),
+        user: reply.user,
+      })),
+      user: post.user,
+      replyToId: post.replyToId || undefined,
+      replyToUserId: post.replyToUserId || undefined,
+    }));
 
     return NextResponse.json({ posts: postsWithUsers });
   } catch (error) {
@@ -76,13 +142,13 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await currentUser();
+    const user = await getOrCreateUser();
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const body = await request.json();
-    const { content, replyToId } = body;
+    const { content, replyToId, imageUrl } = body;
 
     if (!content || content.trim().length === 0) {
       return NextResponse.json(
@@ -98,45 +164,41 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ClerkのユーザーIDで直接取得
-    let dummyUser = dataStore.getUser(user.id);
-    if (!dummyUser) {
-      // ユーザーが存在しない場合は作成
-      dummyUser = dataStore.createUser({
-        id: user.id,
-        email: user.emailAddresses[0]?.emailAddress || "",
-        username: user.username || user.id.substring(0, 8),
-        displayName:
-          user.firstName && user.lastName
-            ? `${user.firstName} ${user.lastName}`
-            : user.username || "User",
-        bio: "",
-        profileImage:
-          user.imageUrl ||
-          "https://api.dicebear.com/7.x/avataaars/svg?seed=" + user.id,
-        headerImage: "https://picsum.photos/800/200?random=" + user.id,
-      });
-    }
-
-    let replyToUserId;
+    let replyToUserId: string | undefined;
     if (replyToId) {
-      const parentPost = dataStore.getPost(replyToId);
+      const parentPost = await prisma.post.findUnique({
+        where: { id: replyToId },
+        select: { userId: true },
+      });
       replyToUserId = parentPost?.userId;
     }
 
-    const post = dataStore.createPost({
-      userId: dummyUser.id,
-      content: content.trim(),
-      replyToId,
-      replyToUserId,
+    const post = await prisma.post.create({
+      data: {
+        userId: user.id,
+        content: content.trim(),
+        imageUrl: imageUrl || null,
+        replyToId: replyToId || null,
+        replyToUserId: replyToUserId || null,
+      },
+      include: {
+        user: true,
+        likes: true,
+      },
     });
 
-    const postUser = dataStore.getUser(post.userId);
     return NextResponse.json({
       post: {
-        ...post,
-        user: postUser,
+        id: post.id,
+        userId: post.userId,
+        content: post.content,
+        imageUrl: post.imageUrl || undefined,
+        createdAt: post.createdAt,
+        likes: [],
         replies: [],
+        user: post.user,
+        replyToId: post.replyToId || undefined,
+        replyToUserId: post.replyToUserId || undefined,
       },
     });
   } catch (error) {
@@ -150,7 +212,7 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const user = await currentUser();
+    const user = await getOrCreateUser();
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -165,32 +227,22 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    let dummyUser = dataStore.getUser(user.id);
-    if (!dummyUser) {
-      // ユーザーが存在しない場合は作成
-      dummyUser = dataStore.createUser({
-        id: user.id,
-        email: user.emailAddresses[0]?.emailAddress || "",
-        username: user.username || user.id.substring(0, 8),
-        displayName:
-          user.firstName && user.lastName
-            ? `${user.firstName} ${user.lastName}`
-            : user.username || "User",
-        bio: "",
-        profileImage:
-          user.imageUrl ||
-          "https://api.dicebear.com/7.x/avataaars/svg?seed=" + user.id,
-        headerImage: "https://picsum.photos/800/200?random=" + user.id,
-      });
+    const post = await prisma.post.findUnique({
+      where: { id: postId },
+      select: { userId: true },
+    });
+
+    if (!post) {
+      return NextResponse.json({ error: "Post not found" }, { status: 404 });
     }
 
-    const success = dataStore.deletePost(postId, dummyUser.id);
-    if (!success) {
-      return NextResponse.json(
-        { error: "Post not found or unauthorized" },
-        { status: 404 }
-      );
+    if (post.userId !== user.id) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
     }
+
+    await prisma.post.delete({
+      where: { id: postId },
+    });
 
     return NextResponse.json({ success: true });
   } catch (error) {

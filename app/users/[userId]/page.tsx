@@ -8,6 +8,15 @@ import PostForm from "@/components/PostForm";
 import PostCard from "@/components/PostCard";
 import Image from "next/image";
 import Link from "next/link";
+import {
+  getCurrentUser,
+  getUserById,
+  getPostsByUserId,
+  createPost,
+  toggleFollow,
+  type Post,
+  type User,
+} from "@/lib/dal";
 
 interface User {
   id: string;
@@ -16,6 +25,9 @@ interface User {
   bio: string;
   profileImage: string;
   headerImage: string;
+  location?: string;
+  website?: string;
+  birthdate?: string;
   followers: string[];
   following: string[];
 }
@@ -33,6 +45,7 @@ interface Post {
   id: string;
   userId: string;
   content: string;
+  imageUrl?: string;
   createdAt: Date;
   likes: string[];
   replies: Reply[];
@@ -52,7 +65,6 @@ export default function UserProfilePage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [isFollowing, setIsFollowing] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
   const [replyingTo, setReplyingTo] = useState<{
     postId: string;
     userId?: string;
@@ -71,29 +83,26 @@ export default function UserProfilePage() {
       setLoading(true);
 
       // 現在のユーザー情報を取得
-      const currentUserRes = await fetch("/api/users");
-      const currentUserData = await currentUserRes.json();
-      if (currentUserData.user) {
-        setCurrentUser(currentUserData.user);
-        setIsFollowing(currentUserData.user.following.includes(userId));
+      const currentUserData = await getCurrentUser();
+      if (currentUserData) {
+        setCurrentUser(currentUserData);
+        setIsFollowing(
+          currentUserData.following?.includes(userId) || false
+        );
       }
 
       // プロフィールユーザー情報を取得
-      const profileRes = await fetch(`/api/users?userId=${userId}`);
-      const profileData = await profileRes.json();
-      if (profileData.user) {
-        setProfileUser(profileData.user);
+      const profileUserData = await getUserById(userId);
+      if (profileUserData) {
+        setProfileUser(profileUserData);
       } else {
         router.push("/");
         return;
       }
 
       // ユーザーの投稿を取得
-      const postsRes = await fetch(`/api/posts?userId=${userId}&type=user`);
-      const postsData = await postsRes.json();
-      if (postsData.posts) {
-        setPosts(postsData.posts);
-      }
+      const postsData = await getPostsByUserId(userId);
+      setPosts(postsData);
     } catch (error) {
       console.error("Error loading data:", error);
     } finally {
@@ -105,39 +114,54 @@ export default function UserProfilePage() {
     if (!currentUser) return;
 
     try {
-      const response = await fetch("/api/follow", {
-        method: isFollowing ? "DELETE" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId }),
-      });
-
-      if (response.ok) {
-        setIsFollowing(!isFollowing);
-        loadData(); // データを再読み込み
-      }
+      await toggleFollow(userId, isFollowing);
+      setIsFollowing(!isFollowing);
+      loadData(); // データを再読み込み
     } catch (error) {
       console.error("Error toggling follow:", error);
     }
   };
 
-  const handlePostSubmit = async (content: string, replyToId?: string) => {
+  const handlePostSubmit = async (
+    content: string,
+    imageUrl?: string,
+    replyToId?: string
+  ) => {
     try {
-      const response = await fetch("/api/posts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, replyToId }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.post) {
-          // 自分の投稿の場合はタイムラインに追加
-          if (data.post.userId === userId) {
-            setPosts((prev) => [data.post, ...prev]);
+      const newPost = await createPost({ content, imageUrl, replyToId });
+      if (newPost) {
+        if (replyToId) {
+          // 返信の場合は、親投稿のreplies配列に追加
+          setPosts((prev) =>
+            prev.map((post) => {
+              if (post.id === replyToId) {
+                return {
+                  ...post,
+                  replies: [
+                    ...(post.replies || []),
+                    {
+                      id: newPost.id,
+                      userId: newPost.userId,
+                      content: newPost.content,
+                      createdAt: newPost.createdAt,
+                      likes: newPost.likes,
+                      user: newPost.user,
+                    },
+                  ],
+                };
+              }
+              return post;
+            })
+          );
+        } else {
+          // 通常の投稿の場合は、自分の投稿のみタイムラインに追加
+          if (newPost.userId === userId) {
+            setPosts((prev) => [newPost, ...prev]);
           }
-          setReplyingTo(null);
-          loadData(); // データを再読み込み
         }
+        setReplyingTo(null);
+        // データを再読み込みして最新の状態を取得
+        loadData();
       }
     } catch (error) {
       console.error("Error creating post:", error);
@@ -171,29 +195,6 @@ export default function UserProfilePage() {
     setReplyingTo({ postId, userId: replyToUserId });
   };
 
-  const handleUpdateProfile = async (updates: Partial<User>) => {
-    if (!currentUser || currentUser.id !== userId) return;
-
-    try {
-      const response = await fetch("/api/users", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.user) {
-          setProfileUser(data.user);
-          setCurrentUser(data.user);
-          setIsEditing(false);
-        }
-      }
-    } catch (error) {
-      console.error("Error updating profile:", error);
-    }
-  };
-
   if (!isSignedIn) {
     return (
       <div className="flex min-h-screen">
@@ -219,9 +220,9 @@ export default function UserProfilePage() {
   const isOwnProfile = currentUser.id === userId;
 
   return (
-    <div className="flex min-h-screen bg-white dark:bg-black">
+    <div className="flex flex-col md:flex-row min-h-screen bg-white dark:bg-black">
       <Sidebar />
-      <main className="flex-1 max-w-2xl border-x border-gray-200 dark:border-gray-800">
+      <main className="w-full md:flex-1 max-w-2xl border-x border-gray-200 dark:border-gray-800">
         <div className="sticky top-0 bg-white dark:bg-black bg-opacity-80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-800 px-4 py-3 z-10">
           <div className="flex items-center gap-4">
             <button
@@ -265,23 +266,23 @@ export default function UserProfilePage() {
 
         {/* プロフィール情報 */}
         <div className="px-4 pb-4 border-b border-gray-200 dark:border-gray-800">
-          <div className="flex justify-between items-start -mt-16 mb-4">
-            <div className="relative">
+          <div className="relative flex justify-between items-start -mt-16 mb-4">
+            <div className="inline-block">
               <Image
                 src={profileUser.profileImage}
                 alt={profileUser.displayName}
                 width={120}
                 height={120}
-                className="rounded-full border-4 border-white dark:border-black"
+                className="rounded-full object-cover flex-shrink-0 border-4 border-white dark:border-black"
               />
             </div>
             {isOwnProfile ? (
-              <button
-                onClick={() => setIsEditing(!isEditing)}
-                className="px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-full font-semibold hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors"
+              <Link
+                href={`/users/${userId}/edit`}
+                className="absolute -bottom-2 right-0 px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-full font-semibold bg-white dark:bg-black hover:bg-gray-50 dark:hover:bg-gray-900 transition-colors"
               >
-                {isEditing ? "キャンセル" : "プロフィール編集"}
-              </button>
+                Edit profile
+              </Link>
             ) : (
               <button
                 onClick={handleFollow}
@@ -296,75 +297,120 @@ export default function UserProfilePage() {
             )}
           </div>
 
-          {isEditing ? (
-            <ProfileEditForm
-              user={profileUser}
-              onSave={handleUpdateProfile}
-              onCancel={() => setIsEditing(false)}
-            />
-          ) : (
-            <>
-              <h1 className="text-2xl font-bold mt-4">
-                {profileUser.displayName}
-              </h1>
-              <p className="text-gray-500 dark:text-gray-400">
-                @{profileUser.username}
-              </p>
-              {profileUser.bio && (
-                <p className="mt-4 text-gray-900 dark:text-gray-100 whitespace-pre-wrap">
-                  {profileUser.bio}
-                </p>
-              )}
-              <div className="flex gap-4 mt-4 text-sm">
-                <Link
-                  href={`/users/${userId}/following`}
-                  className="hover:underline cursor-pointer"
-                >
-                  <span className="font-semibold">
-                    {profileUser.following.length}
-                  </span>{" "}
-                  <span className="text-gray-500 dark:text-gray-400">
-                    フォロー中
-                  </span>
-                </Link>
-                <Link
-                  href={`/users/${userId}/followers`}
-                  className="hover:underline cursor-pointer"
-                >
-                  <span className="font-semibold">
-                    {profileUser.followers.length}
-                  </span>{" "}
-                  <span className="text-gray-500 dark:text-gray-400">
-                    フォロワー
-                  </span>
-                </Link>
-              </div>
-            </>
+          <h1 className="text-2xl font-bold mt-4">{profileUser.displayName}</h1>
+          <p className="text-gray-500 dark:text-gray-400">
+            @{profileUser.username}
+          </p>
+          {profileUser.bio && (
+            <p className="mt-4 text-gray-900 dark:text-gray-100 whitespace-pre-wrap">
+              {profileUser.bio}
+            </p>
           )}
+          <div className="flex flex-col gap-2 mt-4 text-sm text-gray-600 dark:text-gray-400">
+            {profileUser.location && (
+              <div className="flex items-center gap-2">
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 11c1.657 0 3-1.567 3-3.5S13.657 4 12 4s-3 1.567-3 3.5S10.343 11 12 11z"
+                  />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 22C12 22 5 14.5 5 8.5 5 4.91 8.134 2 12 2s7 2.91 7 6.5c0 6-7 13.5-7 13.5z"
+                  />
+                </svg>
+                <span>{profileUser.location}</span>
+              </div>
+            )}
+            {profileUser.website && (
+              <div className="flex items-center gap-2">
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 5v14m7-7H5"
+                  />
+                </svg>
+                <a
+                  href={profileUser.website}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-500 hover:underline"
+                >
+                  {profileUser.website}
+                </a>
+              </div>
+            )}
+            {profileUser.birthdate && (
+              <div className="flex items-center gap-2">
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
+                  />
+                </svg>
+                <span>
+                  生年月日:{" "}
+                  {new Date(profileUser.birthdate).toLocaleDateString("ja-JP")}
+                </span>
+              </div>
+            )}
+          </div>
+          <div className="flex gap-4 mt-4 text-sm">
+            <Link
+              href={`/users/${userId}/following`}
+              className="hover:underline cursor-pointer"
+            >
+              <span className="font-semibold">
+                {profileUser.following.length}
+              </span>{" "}
+              <span className="text-gray-500 dark:text-gray-400">
+                フォロー中
+              </span>
+            </Link>
+            <Link
+              href={`/users/${userId}/followers`}
+              className="hover:underline cursor-pointer"
+            >
+              <span className="font-semibold">
+                {profileUser.followers.length}
+              </span>{" "}
+              <span className="text-gray-500 dark:text-gray-400">
+                フォロワー
+              </span>
+            </Link>
+          </div>
         </div>
 
         {/* 投稿フォーム（自分のプロフィールの場合のみ） */}
-        {isOwnProfile && (
-          <>
-            {replyingTo ? (
-              <div className="border-b border-gray-200 dark:border-gray-800">
-                <PostForm
-                  user={currentUser}
-                  onSubmit={handlePostSubmit}
-                  replyToId={replyingTo.postId}
-                  replyToUserId={replyingTo.userId}
-                  onCancel={() => setReplyingTo(null)}
-                  placeholder="返信を投稿..."
-                />
-              </div>
-            ) : (
-              <PostForm
-                user={currentUser}
-                onSubmit={handlePostSubmit}
-                placeholder="いまどうしてる？"
-              />
-            )}
-          </>
+        {isOwnProfile && !replyingTo && (
+          <PostForm
+            user={currentUser}
+            onSubmit={handlePostSubmit}
+            placeholder="いまどうしてる？"
+          />
         )}
 
         {/* 投稿一覧 */}
@@ -384,6 +430,13 @@ export default function UserProfilePage() {
                 onLike={handleLike}
                 onDelete={handleDelete}
                 onReply={handleReply}
+                replyingToPostId={replyingTo?.postId || null}
+                onShowReplyForm={(postId, replyToUserId) => {
+                  setReplyingTo({ postId, userId: replyToUserId });
+                }}
+                onCancelReply={() => setReplyingTo(null)}
+                currentUser={currentUser}
+                onPostSubmit={handlePostSubmit}
               />
             ))}
           </div>
@@ -426,6 +479,11 @@ function ProfileEditForm({
   const [bio, setBio] = useState(user.bio);
   const [profileImage, setProfileImage] = useState(user.profileImage);
   const [headerImage, setHeaderImage] = useState(user.headerImage);
+  const [location, setLocation] = useState(user.location || "");
+  const [website, setWebsite] = useState(user.website || "");
+  const [birthdate, setBirthdate] = useState(
+    user.birthdate ? user.birthdate.slice(0, 10) : ""
+  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -435,22 +493,16 @@ function ProfileEditForm({
       bio,
       profileImage,
       headerImage,
+      location,
+      website,
+      birthdate,
     });
   };
 
   return (
     <form onSubmit={handleSubmit} className="mt-4 space-y-4">
       <div>
-        <label className="block text-sm font-semibold mb-2">ユーザー名</label>
-        <input
-          type="text"
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-black text-gray-900 dark:text-gray-100"
-        />
-      </div>
-      <div>
-        <label className="block text-sm font-semibold mb-2">表示名</label>
+        <label className="block text-sm font-semibold mb-2">名前</label>
         <input
           type="text"
           value={displayName}
@@ -465,6 +517,44 @@ function ProfileEditForm({
           onChange={(e) => setBio(e.target.value)}
           rows={4}
           className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-black text-gray-900 dark:text-gray-100 resize-none"
+        />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-semibold mb-2">場所</label>
+          <input
+            type="text"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-black text-gray-900 dark:text-gray-100"
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-semibold mb-2">Web</label>
+          <input
+            type="url"
+            value={website}
+            onChange={(e) => setWebsite(e.target.value)}
+            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-black text-gray-900 dark:text-gray-100"
+          />
+        </div>
+      </div>
+      <div>
+        <label className="block text-sm font-semibold mb-2">生年月日</label>
+        <input
+          type="date"
+          value={birthdate}
+          onChange={(e) => setBirthdate(e.target.value)}
+          className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-black text-gray-900 dark:text-gray-100"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-semibold mb-2">ユーザー名</label>
+        <input
+          type="text"
+          value={username}
+          onChange={(e) => setUsername(e.target.value)}
+          className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-black text-gray-900 dark:text-gray-100"
         />
       </div>
       <div>

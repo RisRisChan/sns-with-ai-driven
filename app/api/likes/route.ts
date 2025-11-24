@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { currentUser } from "@clerk/nextjs/server";
-import { dataStore } from "@/lib/dummy-data";
+import { prisma } from "@/lib/prisma";
+import { getOrCreateUser } from "@/lib/db-helpers";
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await currentUser();
+    const user = await getOrCreateUser();
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -19,32 +19,40 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let dummyUser = dataStore.getUser(user.id);
-    if (!dummyUser) {
-      // ユーザーが存在しない場合は作成
-      dummyUser = dataStore.createUser({
-        id: user.id,
-        email: user.emailAddresses[0]?.emailAddress || "",
-        username: user.username || user.id.substring(0, 8),
-        displayName:
-          user.firstName && user.lastName
-            ? `${user.firstName} ${user.lastName}`
-            : user.username || "User",
-        bio: "",
-        profileImage:
-          user.imageUrl ||
-          "https://api.dicebear.com/7.x/avataaars/svg?seed=" + user.id,
-        headerImage: "https://picsum.photos/800/200?random=" + user.id,
+    // 既にいいねしているか確認
+    const existingLike = await prisma.like.findUnique({
+      where: {
+        userId_postId: {
+          userId: user.id,
+          postId,
+        },
+      },
+    });
+
+    if (existingLike) {
+      return NextResponse.json({
+        success: true,
+        likes: [],
+        likesCount: 0,
       });
     }
 
-    dataStore.likePost(postId, dummyUser.id);
-    const post = dataStore.getPost(postId);
+    await prisma.like.create({
+      data: {
+        userId: user.id,
+        postId,
+      },
+    });
+
+    const likes = await prisma.like.findMany({
+      where: { postId },
+      select: { userId: true },
+    });
 
     return NextResponse.json({
       success: true,
-      likes: post?.likes || [],
-      likesCount: post?.likes.length || 0,
+      likes: likes.map((like: { userId: string }) => like.userId),
+      likesCount: likes.length,
     });
   } catch (error) {
     console.error("Error liking post:", error);
@@ -57,7 +65,7 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const user = await currentUser();
+    const user = await getOrCreateUser();
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -72,32 +80,22 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    let dummyUser = dataStore.getUser(user.id);
-    if (!dummyUser) {
-      // ユーザーが存在しない場合は作成
-      dummyUser = dataStore.createUser({
-        id: user.id,
-        email: user.emailAddresses[0]?.emailAddress || "",
-        username: user.username || user.id.substring(0, 8),
-        displayName:
-          user.firstName && user.lastName
-            ? `${user.firstName} ${user.lastName}`
-            : user.username || "User",
-        bio: "",
-        profileImage:
-          user.imageUrl ||
-          "https://api.dicebear.com/7.x/avataaars/svg?seed=" + user.id,
-        headerImage: "https://picsum.photos/800/200?random=" + user.id,
-      });
-    }
+    await prisma.like.deleteMany({
+      where: {
+        userId: user.id,
+        postId,
+      },
+    });
 
-    dataStore.unlikePost(postId, dummyUser.id);
-    const post = dataStore.getPost(postId);
+    const likes = await prisma.like.findMany({
+      where: { postId },
+      select: { userId: true },
+    });
 
     return NextResponse.json({
       success: true,
-      likes: post?.likes || [],
-      likesCount: post?.likes.length || 0,
+      likes: likes.map((like: { userId: string }) => like.userId),
+      likesCount: likes.length,
     });
   } catch (error) {
     console.error("Error unliking post:", error);

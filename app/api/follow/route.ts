@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { currentUser } from "@clerk/nextjs/server";
-import { dataStore } from "@/lib/dummy-data";
+import { prisma } from "@/lib/prisma";
+import { getOrCreateUser } from "@/lib/db-helpers";
 
 export async function POST(request: NextRequest) {
   try {
-    const user = await currentUser();
+    const user = await getOrCreateUser();
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -19,34 +19,43 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    let dummyUser = dataStore.getUser(user.id);
-    if (!dummyUser) {
-      // ユーザーが存在しない場合は作成
-      dummyUser = dataStore.createUser({
-        id: user.id,
-        email: user.emailAddresses[0]?.emailAddress || "",
-        username: user.username || user.id.substring(0, 8),
-        displayName:
-          user.firstName && user.lastName
-            ? `${user.firstName} ${user.lastName}`
-            : user.username || "User",
-        bio: "",
-        profileImage:
-          user.imageUrl ||
-          "https://api.dicebear.com/7.x/avataaars/svg?seed=" + user.id,
-        headerImage: "https://picsum.photos/800/200?random=" + user.id,
-      });
-    }
-
-    if (dummyUser.id === userId) {
+    if (user.id === userId) {
       return NextResponse.json(
         { error: "Cannot follow yourself" },
         { status: 400 }
       );
     }
 
-    dataStore.followUser(dummyUser.id, userId);
-    const targetUser = dataStore.getUser(userId);
+    // 既にフォローしているか確認
+    const existingFollow = await prisma.follow.findUnique({
+      where: {
+        followerId_followingId: {
+          followerId: user.id,
+          followingId: userId,
+        },
+      },
+    });
+
+    if (existingFollow) {
+      const targetUser = await prisma.user.findUnique({
+        where: { id: userId },
+      });
+      return NextResponse.json({
+        success: true,
+        user: targetUser,
+      });
+    }
+
+    await prisma.follow.create({
+      data: {
+        followerId: user.id,
+        followingId: userId,
+      },
+    });
+
+    const targetUser = await prisma.user.findUnique({
+      where: { id: userId },
+    });
 
     return NextResponse.json({
       success: true,
@@ -63,7 +72,7 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const user = await currentUser();
+    const user = await getOrCreateUser();
     if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -78,27 +87,16 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    let dummyUser = dataStore.getUser(user.id);
-    if (!dummyUser) {
-      // ユーザーが存在しない場合は作成
-      dummyUser = dataStore.createUser({
-        id: user.id,
-        email: user.emailAddresses[0]?.emailAddress || "",
-        username: user.username || user.id.substring(0, 8),
-        displayName:
-          user.firstName && user.lastName
-            ? `${user.firstName} ${user.lastName}`
-            : user.username || "User",
-        bio: "",
-        profileImage:
-          user.imageUrl ||
-          "https://api.dicebear.com/7.x/avataaars/svg?seed=" + user.id,
-        headerImage: "https://picsum.photos/800/200?random=" + user.id,
-      });
-    }
+    await prisma.follow.deleteMany({
+      where: {
+        followerId: user.id,
+        followingId: userId,
+      },
+    });
 
-    dataStore.unfollowUser(dummyUser.id, userId);
-    const targetUser = dataStore.getUser(userId);
+    const targetUser = await prisma.user.findUnique({
+      where: { id: userId },
+    });
 
     return NextResponse.json({
       success: true,
