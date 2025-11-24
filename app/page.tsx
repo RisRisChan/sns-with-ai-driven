@@ -1,65 +1,228 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useState } from "react";
+import { useUser } from "@clerk/nextjs";
+import Sidebar from "@/components/Sidebar";
+import PostForm from "@/components/PostForm";
+import PostCard from "@/components/PostCard";
+
+interface User {
+  id: string;
+  username: string;
+  displayName: string;
+  profileImage: string;
+}
+
+interface Reply {
+  id: string;
+  userId: string;
+  content: string;
+  createdAt: Date;
+  likes: string[];
+  user?: User;
+}
+
+interface Post {
+  id: string;
+  userId: string;
+  content: string;
+  createdAt: Date;
+  likes: string[];
+  replies: Reply[];
+  user?: User;
+  replyToId?: string;
+  replyToUserId?: string;
+}
 
 export default function Home() {
+  const { user, isSignedIn } = useUser();
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [replyingTo, setReplyingTo] = useState<{
+    postId: string;
+    userId?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (isSignedIn) {
+      loadUser();
+      loadPosts();
+    } else {
+      setLoading(false);
+    }
+  }, [isSignedIn]);
+
+  const loadUser = async () => {
+    try {
+      const response = await fetch("/api/users");
+      const data = await response.json();
+      if (data.user) {
+        setCurrentUser(data.user);
+      }
+    } catch (error) {
+      console.error("Error loading user:", error);
+    }
+  };
+
+  const loadPosts = async () => {
+    try {
+      setLoading(true);
+      const response = await fetch("/api/posts?type=home");
+      const data = await response.json();
+      if (data.posts) {
+        setPosts(data.posts);
+      }
+    } catch (error) {
+      console.error("Error loading posts:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePostSubmit = async (content: string, replyToId?: string) => {
+    try {
+      const response = await fetch("/api/posts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content, replyToId }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.post) {
+          setPosts((prev) => [data.post, ...prev]);
+          setReplyingTo(null);
+        }
+      } else {
+        throw new Error("Failed to create post");
+      }
+    } catch (error) {
+      console.error("Error creating post:", error);
+      throw error;
+    }
+  };
+
+  const handleLike = (postId: string) => {
+    // 投稿のいいね状態を更新
+    setPosts((prev) =>
+      prev.map((post) => {
+        if (post.id === postId) {
+          const isLiked = currentUser
+            ? post.likes.includes(currentUser.id)
+            : false;
+          return {
+            ...post,
+            likes: isLiked
+              ? post.likes.filter((id) => id !== currentUser?.id)
+              : [...post.likes, currentUser?.id || ""],
+          };
+        }
+        return post;
+      })
+    );
+  };
+
+  const handleDelete = (postId: string) => {
+    setPosts((prev) => prev.filter((post) => post.id !== postId));
+  };
+
+  const handleReply = (postId: string, replyToUserId?: string) => {
+    setReplyingTo({ postId, userId: replyToUserId });
+  };
+
+  if (!isSignedIn) {
+    return (
+      <div className="flex min-h-screen">
+        <Sidebar />
+        <main className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <h1 className="text-2xl font-bold mb-4">SNSにようこそ</h1>
+            <p className="text-gray-600 dark:text-gray-400">
+              ログインしてタイムラインを表示してください
+            </p>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return (
+      <div className="flex min-h-screen">
+        <Sidebar />
+        <main className="flex-1 flex items-center justify-center">
+          <div className="text-center">読み込み中...</div>
+        </main>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div className="flex min-h-screen bg-white dark:bg-black">
+      <Sidebar />
+      <main className="flex-1 max-w-2xl border-x border-gray-200 dark:border-gray-800">
+        <div className="sticky top-0 bg-white dark:bg-black bg-opacity-80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-800 px-4 py-3 z-10">
+          <h2 className="text-xl font-bold">ホーム</h2>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
+
+        {replyingTo ? (
+          <div className="border-b border-gray-200 dark:border-gray-800">
+            <PostForm
+              user={currentUser}
+              onSubmit={handlePostSubmit}
+              replyToId={replyingTo.postId}
+              replyToUserId={replyingTo.userId}
+              onCancel={() => setReplyingTo(null)}
+              placeholder="返信を投稿..."
             />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+          </div>
+        ) : (
+          <PostForm
+            user={currentUser}
+            onSubmit={handlePostSubmit}
+            placeholder="いまどうしてる？"
+          />
+        )}
+
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-gray-500 dark:text-gray-400">
+              読み込み中...
+            </div>
+          </div>
+        ) : posts.length === 0 ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="text-center text-gray-500 dark:text-gray-400">
+              <p>まだ投稿がありません</p>
+              <p className="text-sm mt-2">最初の投稿をしてみましょう！</p>
+            </div>
+          </div>
+        ) : (
+          <div>
+            {posts.map((post) => (
+              <PostCard
+                key={post.id}
+                post={post}
+                currentUserId={currentUser.id}
+                onLike={handleLike}
+                onDelete={handleDelete}
+                onReply={handleReply}
+              />
+            ))}
+          </div>
+        )}
       </main>
+      <aside className="w-80 p-4 hidden lg:block">
+        <div className="sticky top-4">
+          <div className="bg-gray-50 dark:bg-gray-900 rounded-2xl p-4">
+            <h3 className="font-bold text-lg mb-4">トレンド</h3>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              トレンド機能は今後実装予定です
+            </p>
+          </div>
+        </div>
+      </aside>
     </div>
   );
 }
