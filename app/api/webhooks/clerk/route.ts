@@ -70,7 +70,8 @@ export async function POST(req: Request) {
               : username || "User",
           bio: "",
           profileImage:
-            image_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${id}`,
+            image_url ||
+            `https://api.dicebear.com/7.x/avataaars/svg?seed=${id}`,
           headerImage: `https://picsum.photos/800/200?random=${id}`,
         },
       });
@@ -101,7 +102,8 @@ export async function POST(req: Request) {
               ? `${first_name} ${last_name}`
               : username || "User",
           profileImage:
-            image_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${id}`,
+            image_url ||
+            `https://api.dicebear.com/7.x/avataaars/svg?seed=${id}`,
         },
       });
 
@@ -138,4 +140,3 @@ export async function POST(req: Request) {
 
   return new Response("", { status: 200 });
 }
-
