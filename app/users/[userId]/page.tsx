@@ -13,46 +13,14 @@ import {
   getUserById,
   getPostsByUserId,
   createPost,
-  toggleFollow,
   type Post,
   type User,
 } from "@/lib/dal";
-
-interface User {
-  id: string;
-  username: string;
-  displayName: string;
-  bio: string;
-  profileImage: string;
-  headerImage: string;
-  location?: string;
-  website?: string;
-  birthdate?: string;
-  followers: string[];
-  following: string[];
-}
-
-interface Reply {
-  id: string;
-  userId: string;
-  content: string;
-  createdAt: Date;
-  likes: string[];
-  user?: User;
-}
-
-interface Post {
-  id: string;
-  userId: string;
-  content: string;
-  imageUrl?: string;
-  createdAt: Date;
-  likes: string[];
-  replies: Reply[];
-  user?: User;
-  replyToId?: string;
-  replyToUserId?: string;
-}
+import {
+  toggleFollowAction,
+  getFollowCounts,
+  checkIsFollowing,
+} from "@/lib/actions/follow";
 
 export default function UserProfilePage() {
   const { user: clerkUser, isSignedIn } = useUser();
@@ -65,6 +33,9 @@ export default function UserProfilePage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [isFollowingLoading, setIsFollowingLoading] = useState(false);
+  const [followersCount, setFollowersCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
   const [replyingTo, setReplyingTo] = useState<{
     postId: string;
     userId?: string;
@@ -86,15 +57,15 @@ export default function UserProfilePage() {
       const currentUserData = await getCurrentUser();
       if (currentUserData) {
         setCurrentUser(currentUserData);
-        setIsFollowing(
-          currentUserData.following?.includes(userId) || false
-        );
       }
 
       // プロフィールユーザー情報を取得
       const profileUserData = await getUserById(userId);
       if (profileUserData) {
         setProfileUser(profileUserData);
+        // フォロー数を設定（初期値）
+        setFollowersCount(profileUserData.followers?.length || 0);
+        setFollowingCount(profileUserData.following?.length || 0);
       } else {
         router.push("/");
         return;
@@ -103,6 +74,20 @@ export default function UserProfilePage() {
       // ユーザーの投稿を取得
       const postsData = await getPostsByUserId(userId);
       setPosts(postsData);
+
+      // 正確なフォロー数を取得
+      const counts = await getFollowCounts(userId);
+      setFollowersCount(counts.followers);
+      setFollowingCount(counts.following);
+
+      // フォロー状態を確認
+      const followStatus = await checkIsFollowing(userId);
+      console.log("🔍 フォロー状態チェック:", {
+        targetUserId: userId,
+        isFollowing: followStatus,
+        currentUserId: currentUserData?.id,
+      });
+      setIsFollowing(followStatus);
     } catch (error) {
       console.error("Error loading data:", error);
     } finally {
@@ -111,14 +96,42 @@ export default function UserProfilePage() {
   };
 
   const handleFollow = async () => {
-    if (!currentUser) return;
+    if (!currentUser || isFollowingLoading) return;
+
+    setIsFollowingLoading(true);
+    const wasFollowing = isFollowing;
+
+    // 楽観的更新
+    setIsFollowing(!wasFollowing);
+    setFollowersCount((prev) => (wasFollowing ? prev - 1 : prev + 1));
 
     try {
-      await toggleFollow(userId, isFollowing);
-      setIsFollowing(!isFollowing);
-      loadData(); // データを再読み込み
+      const result = await toggleFollowAction(userId, wasFollowing);
+
+      if (!result.success) {
+        // エラー時は元に戻す
+        setIsFollowing(wasFollowing);
+        setFollowersCount((prev) => (wasFollowing ? prev + 1 : prev - 1));
+        alert(result.error || "フォロー/フォロー解除に失敗しました");
+        return;
+      }
+
+      // サーバーから正確なフォロー数とフォロー状態を取得
+      const [counts, followStatus] = await Promise.all([
+        getFollowCounts(userId),
+        checkIsFollowing(userId),
+      ]);
+      setFollowersCount(counts.followers);
+      setFollowingCount(counts.following);
+      setIsFollowing(followStatus);
     } catch (error) {
+      // エラー時は元に戻す
+      setIsFollowing(wasFollowing);
+      setFollowersCount((prev) => (wasFollowing ? prev + 1 : prev - 1));
       console.error("Error toggling follow:", error);
+      alert("フォロー/フォロー解除に失敗しました");
+    } finally {
+      setIsFollowingLoading(false);
     }
   };
 
@@ -286,13 +299,18 @@ export default function UserProfilePage() {
             ) : (
               <button
                 onClick={handleFollow}
-                className={`px-6 py-2 rounded-full font-semibold transition-colors ${
+                disabled={isFollowingLoading}
+                className={`px-6 py-2 rounded-full font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                   isFollowing
                     ? "border border-gray-300 dark:border-gray-700 hover:bg-red-50 dark:hover:bg-red-900/20"
                     : "bg-black dark:bg-white text-white dark:text-black hover:bg-gray-800 dark:hover:bg-gray-200"
                 }`}
               >
-                {isFollowing ? "フォロー解除" : "フォロー"}
+                {isFollowingLoading
+                  ? "処理中..."
+                  : isFollowing
+                  ? "フォロー解除"
+                  : "フォロー"}
               </button>
             )}
           </div>
@@ -383,9 +401,7 @@ export default function UserProfilePage() {
               href={`/users/${userId}/following`}
               className="hover:underline cursor-pointer"
             >
-              <span className="font-semibold">
-                {profileUser.following.length}
-              </span>{" "}
+              <span className="font-semibold">{followingCount}</span>{" "}
               <span className="text-gray-500 dark:text-gray-400">
                 フォロー中
               </span>
@@ -394,9 +410,7 @@ export default function UserProfilePage() {
               href={`/users/${userId}/followers`}
               className="hover:underline cursor-pointer"
             >
-              <span className="font-semibold">
-                {profileUser.followers.length}
-              </span>{" "}
+              <span className="font-semibold">{followersCount}</span>{" "}
               <span className="text-gray-500 dark:text-gray-400">
                 フォロワー
               </span>
@@ -450,11 +464,11 @@ export default function UserProfilePage() {
               <div className="space-y-2 text-sm">
                 <p>
                   <span className="font-semibold">フォロー中:</span>{" "}
-                  {profileUser.following.length}
+                  {followingCount}
                 </p>
                 <p>
                   <span className="font-semibold">フォロワー:</span>{" "}
-                  {profileUser.followers.length}
+                  {followersCount}
                 </p>
               </div>
             )}

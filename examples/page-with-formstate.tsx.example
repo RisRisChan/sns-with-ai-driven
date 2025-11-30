@@ -1,10 +1,16 @@
+/**
+ * useFormState を使った app/page.tsx の実装例
+ *
+ * このファイルは使用例です。実際に使用する場合は、
+ * app/page.tsx にコピーして必要に応じて修正してください。
+ */
+
 "use client";
 
 import { useEffect, useState } from "react";
 import { useUser } from "@clerk/nextjs";
-import { useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
-import PostForm from "@/components/PostForm";
+import PostFormWithAction from "@/components/PostFormWithAction";
 import PostCard from "@/components/PostCard";
 import {
   getCurrentUser,
@@ -12,11 +18,9 @@ import {
   type Post,
   type User,
 } from "@/lib/dal";
-import { createPostAction } from "@/lib/actions/posts";
 
-export default function Home() {
+export default function HomeWithFormState() {
   const { user, isSignedIn } = useUser();
-  const router = useRouter();
   const [posts, setPosts] = useState<Post[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -51,93 +55,53 @@ export default function Home() {
     }
   };
 
-  const handlePostSubmit = async (
-    content: string,
-    imageUrl?: string,
-    replyToId?: string
-  ) => {
-    try {
-      const result = await createPostAction({ content, imageUrl, replyToId });
-
-      if (!result.success) {
-        alert(result.error || "投稿に失敗しました");
-        throw new Error(result.error);
-      }
-
-      const newPost = result.post;
-      if (newPost) {
-        if (replyToId) {
-          // 返信の場合は、親投稿のreplies配列に追加
-          setPosts((prev) =>
-            prev.map((post) => {
-              if (post.id === replyToId) {
-                return {
-                  ...post,
-                  replies: [
-                    ...(post.replies || []),
-                    {
-                      id: newPost.id,
-                      userId: newPost.userId,
-                      content: newPost.content,
-                      createdAt: newPost.createdAt,
-                      likes: newPost.likes,
-                      user: newPost.user,
-                    } as any,
-                  ],
-                };
-              }
-              return post;
-            })
-          );
-        } else {
-          // 通常の投稿の場合は、タイムラインの先頭に追加
-          setPosts((prev) => [newPost, ...prev]);
-        }
-        setReplyingTo(null);
-      }
-    } catch (error) {
-      console.error("Error creating post:", error);
-      throw error;
+  // 投稿成功時のコールバック
+  const handlePostSuccess = (newPost: any) => {
+    if (newPost.replyToId) {
+      // 返信の場合は、親投稿のreplies配列に追加
+      setPosts((prev) =>
+        prev.map((post) => {
+          if (post.id === newPost.replyToId) {
+            return {
+              ...post,
+              replies: [
+                ...(post.replies || []),
+                {
+                  id: newPost.id,
+                  userId: newPost.userId,
+                  content: newPost.content,
+                  createdAt: newPost.createdAt,
+                  likes: newPost.likes,
+                  user: newPost.user,
+                },
+              ],
+            };
+          }
+          return post;
+        })
+      );
+    } else {
+      // 通常の投稿の場合は、タイムラインの先頭に追加
+      setPosts((prev) => [newPost, ...prev]);
     }
+    setReplyingTo(null);
   };
 
-  const handleLike = async (postId: string) => {
-    if (!currentUser) return;
-
-    // 投稿のいいね状態を楽観的に更新
+  const handleLike = (postId: string) => {
+    // 投稿のいいね状態を更新
     setPosts((prev) =>
       prev.map((post) => {
-        // トップレベルの投稿の場合
         if (post.id === postId) {
-          const isLiked = post.likes.includes(currentUser.id);
+          const isLiked = currentUser
+            ? post.likes.includes(currentUser.id)
+            : false;
           return {
             ...post,
             likes: isLiked
-              ? post.likes.filter((id) => id !== currentUser.id)
-              : [...post.likes, currentUser.id],
+              ? post.likes.filter((id) => id !== currentUser?.id)
+              : [...post.likes, currentUser?.id || ""],
           };
         }
-
-        // 返信の場合
-        if (post.replies && post.replies.length > 0) {
-          const hasReply = post.replies.some((reply) => reply.id === postId);
-          if (hasReply) {
-            return {
-              ...post,
-              replies: post.replies.map((reply) =>
-                reply.id === postId
-                  ? {
-                      ...reply,
-                      likes: reply.likes.includes(currentUser.id)
-                        ? reply.likes.filter((id) => id !== currentUser.id)
-                        : [...reply.likes, currentUser.id],
-                    }
-                  : reply
-              ),
-            };
-          }
-        }
-
         return post;
       })
     );
@@ -160,10 +124,10 @@ export default function Home() {
         </div>
 
         {isSignedIn && currentUser ? (
-          <PostForm
+          <PostFormWithAction
             user={currentUser}
-            onSubmit={handlePostSubmit}
             placeholder="いまどうしてる？"
+            onSuccess={handlePostSuccess}
           />
         ) : (
           <div className="border-b border-gray-200 dark:border-gray-800 px-4 py-6">
@@ -192,7 +156,7 @@ export default function Home() {
           <div>
             {posts.map((post) => (
               <PostCard
-                key={`${post.id}-${currentUser?.id || "guest"}`}
+                key={post.id}
                 post={post}
                 currentUserId={currentUser?.id || ""}
                 onLike={handleLike}
@@ -203,8 +167,12 @@ export default function Home() {
                   setReplyingTo({ postId, userId: replyToUserId });
                 }}
                 onCancelReply={() => setReplyingTo(null)}
-                currentUser={currentUser ?? undefined}
-                onPostSubmit={handlePostSubmit}
+                currentUser={currentUser}
+                onPostSubmit={(content, imageUrl, replyToId) => {
+                  // 従来のonPostSubmitインターフェースを維持
+                  // 実際には PostFormWithAction を使用して実装
+                  return Promise.resolve();
+                }}
               />
             ))}
           </div>
@@ -223,3 +191,4 @@ export default function Home() {
     </div>
   );
 }
+

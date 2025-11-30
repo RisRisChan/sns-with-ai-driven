@@ -1,3 +1,6 @@
+"use client";
+
+import { useRouter } from "next/navigation";
 import type { Post, User } from "@/types/post";
 
 interface PostActionsProps {
@@ -7,6 +10,7 @@ interface PostActionsProps {
   likesCount: number;
   repliesCount: number;
   isDeleting: boolean;
+  isLiking: boolean;
   onLike: () => void;
   onDelete: () => void;
   onReply: () => void;
@@ -19,14 +23,33 @@ export default function PostActions({
   likesCount,
   repliesCount,
   isDeleting,
+  isLiking,
   onLike,
   onDelete,
   onReply,
 }: PostActionsProps) {
+  const router = useRouter();
+
+  const handleReply = () => {
+    if (!currentUserId) {
+      router.push("/sign-in");
+      return;
+    }
+    onReply();
+  };
+
+  const handleLike = () => {
+    if (!currentUserId) {
+      router.push("/sign-in");
+      return;
+    }
+    onLike();
+  };
+
   return (
     <div className="flex items-center gap-6 text-gray-500 dark:text-gray-400">
       <button
-        onClick={onReply}
+        onClick={handleReply}
         className="flex items-center gap-2 hover:text-blue-500 dark:hover:text-blue-400 transition-colors"
       >
         <svg
@@ -45,8 +68,9 @@ export default function PostActions({
         {repliesCount > 0 && <span>{repliesCount}</span>}
       </button>
       <button
-        onClick={onLike}
-        className={`flex items-center gap-2 transition-colors ${
+        onClick={handleLike}
+        disabled={isLiking}
+        className={`flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
           isLiked
             ? "text-red-500 dark:text-red-400"
             : "hover:text-red-500 dark:hover:text-red-400"
@@ -79,4 +103,3 @@ export default function PostActions({
     </div>
   );
 }
-

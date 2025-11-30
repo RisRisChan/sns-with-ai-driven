@@ -6,22 +6,16 @@ import { useParams, useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import Image from "next/image";
 import Link from "next/link";
-import {
-  getCurrentUser,
-  getUserById,
-  getUsersByIds,
-  type User,
-} from "@/lib/dal";
+import { getCurrentUser, getUserById, type User } from "@/lib/dal";
+import { getFollowersList } from "@/lib/actions/follow";
 
-interface User {
+type FollowerUser = {
   id: string;
   username: string;
   displayName: string;
   bio: string;
   profileImage: string;
-  followers: string[];
-  following: string[];
-}
+};
 
 export default function FollowersPage() {
   const { isSignedIn } = useUser();
@@ -31,7 +25,7 @@ export default function FollowersPage() {
 
   const [profileUser, setProfileUser] = useState<User | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [followers, setFollowers] = useState<User[]>([]);
+  const [followers, setFollowers] = useState<FollowerUser[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -54,12 +48,11 @@ export default function FollowersPage() {
       const profileUserData = await getUserById(userId);
       if (profileUserData) {
         setProfileUser(profileUserData);
-
-        // フォロワー一覧を取得
-        const followerIds = profileUserData.followers || [];
-        const followersList = await getUsersByIds(followerIds);
-        setFollowers(followersList);
       }
+
+      // フォロワー一覧を直接取得
+      const followersList = await getFollowersList(userId);
+      setFollowers(followersList);
     } catch (error) {
       console.error("Error loading data:", error);
     } finally {
