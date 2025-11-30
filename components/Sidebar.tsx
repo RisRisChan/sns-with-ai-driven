@@ -51,7 +51,7 @@ export default function Sidebar() {
           )}
         </nav>
 
-        {currentUser && (
+        {currentUser ? (
           <div className="mt-auto pt-4 border-t border-gray-200 dark:border-gray-800">
             <Link
               href={`/users/${currentUser.id}`}
@@ -80,6 +80,14 @@ export default function Sidebar() {
                 </button>
               </SignOutButton>
             </div>
+          </div>
+        ) : (
+          <div className="mt-auto pt-4 border-t border-gray-200 dark:border-gray-800">
+            <SignInButton mode="redirect">
+              <button className="w-full px-4 py-3 bg-blue-500 text-white rounded-full font-semibold hover:bg-blue-600 transition-colors">
+                ログイン
+              </button>
+            </SignInButton>
           </div>
         )}
       </div>

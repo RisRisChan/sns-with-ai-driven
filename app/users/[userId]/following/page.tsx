@@ -6,22 +6,16 @@ import { useParams, useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import Image from "next/image";
 import Link from "next/link";
-import {
-  getCurrentUser,
-  getUserById,
-  getUsersByIds,
-  type User,
-} from "@/lib/dal";
+import { getCurrentUser, getUserById, type User } from "@/lib/dal";
+import { getFollowingList } from "@/lib/actions/follow";
 
-interface User {
+type FollowingUser = {
   id: string;
   username: string;
   displayName: string;
   bio: string;
   profileImage: string;
-  followers: string[];
-  following: string[];
-}
+};
 
 export default function FollowingPage() {
   const { isSignedIn } = useUser();
@@ -31,7 +25,7 @@ export default function FollowingPage() {
 
   const [profileUser, setProfileUser] = useState<User | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [following, setFollowing] = useState<User[]>([]);
+  const [following, setFollowing] = useState<FollowingUser[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -54,12 +48,11 @@ export default function FollowingPage() {
       const profileUserData = await getUserById(userId);
       if (profileUserData) {
         setProfileUser(profileUserData);
-
-        // フォロー中一覧を取得
-        const followingIds = profileUserData.following || [];
-        const followingList = await getUsersByIds(followingIds);
-        setFollowing(followingList);
       }
+
+      // フォロー中一覧を直接取得
+      const followingList = await getFollowingList(userId);
+      setFollowing(followingList);
     } catch (error) {
       console.error("Error loading data:", error);
     } finally {

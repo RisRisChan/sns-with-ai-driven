@@ -21,15 +21,25 @@ export default function PostCard({
   currentUser,
   onPostSubmit,
 }: PostCardProps) {
-  const { isLiked, likesCount, isDeleting, handleLike, handleDelete } =
-    usePostActions({
-      postId: post.id,
-      initialLiked: currentUserId ? post.likes.includes(currentUserId) : false,
-      initialLikesCount: post.likes.length,
-      currentUserId,
-      onLike: () => onLike(post.id),
-      onDelete: () => onDelete(post.id),
-    });
+  const initialLiked = currentUserId
+    ? post.likes.includes(currentUserId)
+    : false;
+
+  const {
+    isLiked,
+    likesCount,
+    isDeleting,
+    isLiking,
+    handleLike,
+    handleDelete,
+  } = usePostActions({
+    postId: post.id,
+    initialLiked,
+    initialLikesCount: post.likes.length,
+    currentUserId,
+    onLike: () => onLike(post.id),
+    onDelete: () => onDelete(post.id),
+  });
 
   if (!post.user) return null;
 
@@ -74,6 +84,7 @@ export default function PostCard({
             likesCount={likesCount}
             repliesCount={post.replies?.length || 0}
             isDeleting={isDeleting}
+            isLiking={isLiking}
             onLike={handleLike}
             onDelete={handleDelete}
             onReply={handleReplyClick}

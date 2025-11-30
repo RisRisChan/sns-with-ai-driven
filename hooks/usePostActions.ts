@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { likePost, unlikePost, deletePost } from "@/lib/dal";
+import { toggleLikeAction, deletePostAction } from "@/lib/actions/posts";
 
 interface UsePostActionsProps {
   postId: string;
@@ -21,26 +21,35 @@ export function usePostActions({
   const [isLiked, setIsLiked] = useState(initialLiked);
   const [likesCount, setLikesCount] = useState(initialLikesCount);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isLiking, setIsLiking] = useState(false);
 
   const handleLike = async () => {
-    if (!currentUserId) return;
+    if (!currentUserId || isLiking) return;
 
+    setIsLiking(true);
     const wasLiked = isLiked;
     setIsLiked(!wasLiked);
     setLikesCount((prev) => (wasLiked ? prev - 1 : prev + 1));
 
     try {
-      if (wasLiked) {
-        await unlikePost(postId);
-      } else {
-        await likePost(postId);
+      const result = await toggleLikeAction(postId);
+
+      if (!result.success) {
+        // エラー時は元に戻す
+        setIsLiked(wasLiked);
+        setLikesCount((prev) => (wasLiked ? prev + 1 : prev - 1));
+        console.error("Error toggling like:", result.error);
+        return;
       }
+
       onLike(postId);
     } catch (error) {
       // エラー時は元に戻す
       setIsLiked(wasLiked);
       setLikesCount((prev) => (wasLiked ? prev + 1 : prev - 1));
       console.error("Error toggling like:", error);
+    } finally {
+      setIsLiking(false);
     }
   };
 
@@ -49,11 +58,12 @@ export function usePostActions({
     setIsDeleting(true);
 
     try {
-      const success = await deletePost(postId);
-      if (success) {
+      const result = await deletePostAction(postId);
+
+      if (result.success) {
         onDelete(postId);
       } else {
-        alert("投稿の削除に失敗しました");
+        alert(result.error || "投稿の削除に失敗しました");
         setIsDeleting(false);
       }
     } catch (error) {
@@ -67,8 +77,8 @@ export function usePostActions({
     isLiked,
     likesCount,
     isDeleting,
+    isLiking,
     handleLike,
     handleDelete,
   };
 }
-

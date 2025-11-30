@@ -4,11 +4,7 @@ import { getOrCreateUser } from "@/lib/db-helpers";
 
 export async function GET(request: NextRequest) {
   try {
-    const user = await getOrCreateUser();
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
+    // GET リクエストは認証不要でタイムラインを閲覧可能
     const searchParams = request.nextUrl.searchParams;
     const userId = searchParams.get("userId");
     const type = searchParams.get("type") || "home";

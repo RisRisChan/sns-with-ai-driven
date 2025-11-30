@@ -6,18 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import Sidebar from "@/components/Sidebar";
 import Image from "next/image";
 import { getUserById, updateUser, type User } from "@/lib/dal";
-
-interface User {
-  id: string;
-  username: string;
-  displayName: string;
-  bio: string;
-  profileImage: string;
-  headerImage: string;
-  location?: string;
-  website?: string;
-  birthdate?: string;
-}
+import { uploadImage } from "@/lib/actions/upload";
 
 export default function EditProfilePage() {
   const { user: clerkUser, isSignedIn } = useUser();
@@ -167,6 +156,88 @@ function ProfileEditForm({
     user.birthdate ? user.birthdate.slice(0, 10) : ""
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploadingProfile, setIsUploadingProfile] = useState(false);
+  const [isUploadingHeader, setIsUploadingHeader] = useState(false);
+  const [profileImagePreview, setProfileImagePreview] = useState<string | null>(
+    null
+  );
+  const [headerImagePreview, setHeaderImagePreview] = useState<string | null>(
+    null
+  );
+
+  const handleProfileImageChange = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // プレビュー表示
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setProfileImagePreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+
+    // Supabaseにアップロード
+    setIsUploadingProfile(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const result = await uploadImage(formData);
+
+      if (result.success && result.url) {
+        setProfileImage(result.url);
+        alert("プロフィール画像をアップロードしました");
+      } else {
+        alert(result.error || "アップロードに失敗しました");
+        setProfileImagePreview(null);
+      }
+    } catch (error) {
+      console.error("Error uploading profile image:", error);
+      alert("アップロードに失敗しました");
+      setProfileImagePreview(null);
+    } finally {
+      setIsUploadingProfile(false);
+    }
+  };
+
+  const handleHeaderImageChange = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // プレビュー表示
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setHeaderImagePreview(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+
+    // Supabaseにアップロード
+    setIsUploadingHeader(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      const result = await uploadImage(formData);
+
+      if (result.success && result.url) {
+        setHeaderImage(result.url);
+        alert("カバー画像をアップロードしました");
+      } else {
+        alert(result.error || "アップロードに失敗しました");
+        setHeaderImagePreview(null);
+      }
+    } catch (error) {
+      console.error("Error uploading header image:", error);
+      alert("アップロードに失敗しました");
+      setHeaderImagePreview(null);
+    } finally {
+      setIsUploadingHeader(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -188,27 +259,106 @@ function ProfileEditForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="mt-4 space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-semibold mb-2">
-            プロフィール画像URL
-          </label>
-          <input
-            type="text"
-            value={profileImage}
-            onChange={(e) => setProfileImage(e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-black text-gray-900 dark:text-gray-100"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-semibold mb-2">
-            ヘッダー画像URL
-          </label>
+    <form onSubmit={handleSubmit} className="mt-4 space-y-6">
+      {/* カバー画像（ヘッダー画像）*/}
+      <div>
+        <label className="block text-sm font-semibold mb-3">
+          カバー画像（ヘッダー画像）
+        </label>
+        <div className="space-y-3">
+          {/* プレビュー */}
+          <div className="w-full h-40 bg-gray-200 dark:bg-gray-800 rounded-lg overflow-hidden relative">
+            {(headerImagePreview || headerImage) && (
+              <Image
+                src={headerImagePreview || headerImage || ""}
+                alt="Header preview"
+                fill
+                className="object-cover"
+              />
+            )}
+            {!headerImagePreview && !headerImage && (
+              <div className="flex items-center justify-center h-full text-gray-500">
+                カバー画像
+              </div>
+            )}
+          </div>
+          {/* ファイル選択ボタン */}
+          <div className="flex gap-2">
+            <label
+              className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
+                isUploadingHeader
+                  ? "bg-gray-400 cursor-not-allowed"
+                  : "bg-blue-500 hover:bg-blue-600 cursor-pointer"
+              } text-white`}
+            >
+              {isUploadingHeader ? "アップロード中..." : "画像を選択"}
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleHeaderImageChange}
+                disabled={isUploadingHeader}
+                className="hidden"
+              />
+            </label>
+          </div>
+          {/* URL直接入力 */}
           <input
             type="text"
             value={headerImage}
             onChange={(e) => setHeaderImage(e.target.value)}
+            placeholder="または画像URLを直接入力"
+            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-black text-gray-900 dark:text-gray-100"
+          />
+        </div>
+      </div>
+
+      {/* プロフィール画像 */}
+      <div>
+        <label className="block text-sm font-semibold mb-3">
+          プロフィール画像
+        </label>
+        <div className="space-y-3">
+          {/* プレビュー */}
+          <div className="w-32 h-32 bg-gray-200 dark:bg-gray-800 rounded-full overflow-hidden relative mx-auto">
+            {(profileImagePreview || profileImage) && (
+              <Image
+                src={profileImagePreview || profileImage || ""}
+                alt="Profile preview"
+                fill
+                className="object-cover"
+              />
+            )}
+            {!profileImagePreview && !profileImage && (
+              <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+                画像
+              </div>
+            )}
+          </div>
+          {/* ファイル選択ボタン */}
+          <div className="flex gap-2 justify-center">
+            <label
+              className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
+                isUploadingProfile
+                  ? "bg-gray-400 cursor-not-allowed"
+                  : "bg-blue-500 hover:bg-blue-600 cursor-pointer"
+              } text-white`}
+            >
+              {isUploadingProfile ? "アップロード中..." : "画像を選択"}
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleProfileImageChange}
+                disabled={isUploadingProfile}
+                className="hidden"
+              />
+            </label>
+          </div>
+          {/* URL直接入力 */}
+          <input
+            type="text"
+            value={profileImage}
+            onChange={(e) => setProfileImage(e.target.value)}
+            placeholder="または画像URLを直接入力"
             className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-black text-gray-900 dark:text-gray-100"
           />
         </div>
@@ -288,4 +438,3 @@ function ProfileEditForm({
     </form>
   );
 }
-

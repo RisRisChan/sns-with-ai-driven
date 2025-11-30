@@ -1,11 +1,5 @@
 // 投稿関連のデータアクセスレイヤー
-
-export interface User {
-  id: string;
-  username: string;
-  displayName: string;
-  profileImage: string;
-}
+import type { User } from "./users";
 
 export interface Reply {
   id: string;
@@ -116,4 +110,3 @@ export async function deletePost(postId: string): Promise<boolean> {
     throw error;
   }
 }
-
